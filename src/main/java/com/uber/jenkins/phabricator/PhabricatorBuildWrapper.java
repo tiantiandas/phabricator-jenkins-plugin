@@ -34,6 +34,8 @@ import com.uber.jenkins.phabricator.tasks.Task;
 import com.uber.jenkins.phabricator.utils.CommonUtils;
 import com.uber.jenkins.phabricator.utils.Logger;
 
+import hudson.model.*;
+import jenkins.tasks.SimpleBuildWrapper;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 
@@ -44,20 +46,10 @@ import java.util.Map;
 import hudson.EnvVars;
 import hudson.FilePath;
 import hudson.Launcher;
-import hudson.model.AbstractBuild;
-import hudson.model.BuildListener;
-import hudson.model.Cause;
-import hudson.model.CauseAction;
-import hudson.model.Executor;
-import hudson.model.Job;
-import hudson.model.ParameterValue;
-import hudson.model.ParametersAction;
-import hudson.model.Result;
-import hudson.model.Run;
 import hudson.tasks.BuildWrapper;
 import hudson.util.RunList;
 
-public class PhabricatorBuildWrapper extends BuildWrapper {
+public class PhabricatorBuildWrapper extends SimpleBuildWrapper {
 
     private static final String CONDUIT_TAG = "conduit";
     private static final String DIFFERENTIAL_SUMMARY = "PHABRICATOR_DIFFERENTIAL_SUMMARY";
@@ -118,35 +110,26 @@ public class PhabricatorBuildWrapper extends BuildWrapper {
         return null;
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public Environment setUp(
-            AbstractBuild build,
-            Launcher launcher,
-            BuildListener listener) throws IOException, InterruptedException {
+    public void setUp(Context context, Run<?, ?> build, FilePath workspace, Launcher launcher, TaskListener listener, EnvVars initialEnvironment) throws IOException, InterruptedException {
         EnvVars environment = build.getEnvironment(listener);
         Logger logger = new Logger(listener.getLogger());
-        if (environment == null) {
-            return this.ignoreBuild(logger, "No environment variables found?!");
-        }
 
         final Map<String, String> envAdditions = new HashMap<String, String>();
 
         String phid = environment.get(PhabricatorPlugin.PHID_FIELD);
         String diffID = environment.get(PhabricatorPlugin.DIFFERENTIAL_ID_FIELD);
         if (CommonUtils.isBlank(diffID)) {
-            this.addShortText(build);
+            this.addShortText((AbstractBuild) build);
             this.ignoreBuild(logger, "No differential ID found.");
-            return new Environment() { };
+            return;
         }
 
         FilePath arcWorkPath;
         if (this.workDir != null && this.workDir.length() > 0) {
-            arcWorkPath = build.getWorkspace().child(workDir);
+            arcWorkPath = workspace.child(workDir);
         } else {
-            arcWorkPath = build.getWorkspace();
+            arcWorkPath = workspace;
         }
         LauncherFactory starter = new LauncherFactory(launcher, environment, listener.getLogger(), arcWorkPath);
 
@@ -156,7 +139,7 @@ public class PhabricatorBuildWrapper extends BuildWrapper {
         } catch (ConduitAPIException e) {
             e.printStackTrace(logger.getStream());
             logger.warn(CONDUIT_TAG, e.getMessage());
-            return null;
+            return;
         }
 
         DifferentialClient diffClient = new DifferentialClient(diffID, conduitClient);
@@ -192,7 +175,7 @@ public class PhabricatorBuildWrapper extends BuildWrapper {
             e.printStackTrace(logger.getStream());
             logger.warn(CONDUIT_TAG, "Unable to fetch differential from Conduit API");
             logger.warn(CONDUIT_TAG, e.getMessage());
-            return null;
+            return;
         }
 
         if (skipApplyPatch) {
@@ -224,55 +207,50 @@ public class PhabricatorBuildWrapper extends BuildWrapper {
                     logger.warn("arcanist", "Unable to notify harbormaster of patch failure");
                 }
                 // Indicate failure
-                return null;
+                return;
             }
         }
 
-        return new Environment() {
-            @Override
-            public void buildEnvVars(Map<String, String> env) {
-                EnvVars envVars = new EnvVars(env);
-                envVars.putAll(envAdditions);
-                env.putAll(envVars);
-            }
-        };
+        for (Map.Entry<String, String> e : envAdditions.entrySet()) {
+            context.env(e.getKey(), e.getValue());
+        }
     }
 
     /**
      * Abort running builds when new build referencing same revision is scheduled to run
      */
-    @Override
-    public void preCheckout(AbstractBuild build, Launcher launcher, BuildListener listener) throws IOException,
-            InterruptedException {
-        String abortOnRevisionId = getAbortOnRevisionId(build);
-        // If ABORT_ON_REVISION_ID is available
-        if (!CommonUtils.isBlank(abortOnRevisionId)) {
-            // Create a cause of interruption
-            PhabricatorCauseOfInterruption causeOfInterruption =
-                    new PhabricatorCauseOfInterruption(build.getUrl());
-            Run upstreamRun = getUpstreamRun(build);
-
-            // Get the running builds that were scheduled before the current one
-            RunList<AbstractBuild> runningBuilds = (RunList<AbstractBuild>) build.getProject().getBuilds();
-            for (AbstractBuild runningBuild : runningBuilds) {
-                Executor executor = runningBuild.getExecutor();
-                Run runningBuildUpstreamRun = getUpstreamRun(runningBuild);
-
-                // Ignore builds that were triggered by the same upstream build
-                // Find builds triggered with the same ABORT_ON_REVISION_ID_FIELD
-                if (runningBuild.isBuilding()
-                        && runningBuild.number < build.number
-                        && abortOnRevisionId.equals(getAbortOnRevisionId(runningBuild))
-                        && (upstreamRun == null
-                        || runningBuildUpstreamRun == null
-                        || !upstreamRun.equals(runningBuildUpstreamRun))
-                        && executor != null) {
-                    // Abort the builds
-                    executor.interrupt(Result.ABORTED, causeOfInterruption);
-                }
-            }
-        }
-    }
+//    @Override
+//    public void preCheckout(AbstractBuild build, Launcher launcher, BuildListener listener) throws IOException,
+//            InterruptedException {
+//        String abortOnRevisionId = getAbortOnRevisionId(build);
+//        // If ABORT_ON_REVISION_ID is available
+//        if (!CommonUtils.isBlank(abortOnRevisionId)) {
+//            // Create a cause of interruption
+//            PhabricatorCauseOfInterruption causeOfInterruption =
+//                    new PhabricatorCauseOfInterruption(build.getUrl());
+//            Run upstreamRun = getUpstreamRun(build);
+//
+//            // Get the running builds that were scheduled before the current one
+//            RunList<AbstractBuild> runningBuilds = (RunList<AbstractBuild>) build.getProject().getBuilds();
+//            for (AbstractBuild runningBuild : runningBuilds) {
+//                Executor executor = runningBuild.getExecutor();
+//                Run runningBuildUpstreamRun = getUpstreamRun(runningBuild);
+//
+//                // Ignore builds that were triggered by the same upstream build
+//                // Find builds triggered with the same ABORT_ON_REVISION_ID_FIELD
+//                if (runningBuild.isBuilding()
+//                        && runningBuild.number < build.number
+//                        && abortOnRevisionId.equals(getAbortOnRevisionId(runningBuild))
+//                        && (upstreamRun == null
+//                        || runningBuildUpstreamRun == null
+//                        || !upstreamRun.equals(runningBuildUpstreamRun))
+//                        && executor != null) {
+//                    // Abort the builds
+//                    executor.interrupt(Result.ABORTED, causeOfInterruption);
+//                }
+//            }
+//        }
+//    }
 
     protected Object readResolve() {
         if (scmType == null) {
