@@ -51,11 +51,13 @@ import hudson.util.RunList;
 public class PhabricatorBuildWrapper extends SimpleBuildWrapper {
 
     private static final String CONDUIT_TAG = "conduit";
-    private static final String DEFAULT_GIT_PATH = "git";
     private static final String DIFFERENTIAL_SUMMARY = "PHABRICATOR_DIFFERENTIAL_SUMMARY";
     private static final String DIFFERENTIAL_AUTHOR = "PHABRICATOR_DIFFERENTIAL_AUTHOR";
     private static final String DIFFERENTIAL_BASE_COMMIT = "PHABRICATOR_DIFFERENTIAL_BASE_COMMIT";
     private static final String DIFFERENTIAL_BRANCH = "PHABRICATOR_DIFFERENTIAL_BRANCH";
+
+    private static final String DEFAULT_GIT_BRANCH = "origin/master";
+    private static final String DEFAULT_HG_BRANCH = "default";
 
     private final boolean createCommit;
     private final boolean applyToMaster;
@@ -173,7 +175,12 @@ public class PhabricatorBuildWrapper extends SimpleBuildWrapper {
         if (skipApplyPatch) {
             logger.info("arcanist", "Skipping applying arc patch as configured in job");
         } else {
-            String baseCommit = "origin/master";
+
+            String baseCommit = DEFAULT_GIT_BRANCH;
+            if ("hg".equals(scmType)) {
+                baseCommit = DEFAULT_HG_BRANCH;
+            }
+
             if (!applyToMaster) {
                 baseCommit = diff.getBaseCommit();
             }
@@ -182,9 +189,8 @@ public class PhabricatorBuildWrapper extends SimpleBuildWrapper {
             final String conduitUrl = this.getPhabricatorURL(build.getParent());
             Task.Result result = new ApplyPatchTask(
                     logger, starter, baseCommit, diffID, conduitUrl, conduitToken, getArcPath(),
-                    DEFAULT_GIT_PATH, createCommit, skipForcedClean, createBranch,
-                    patchWithForceFlag, scmType
-            ).run();
+                    createCommit, skipForcedClean, createBranch,
+                    patchWithForceFlag, scmType).run();
 
             if (result != Task.Result.SUCCESS) {
                 logger.warn("arcanist", "Error applying arc patch; got non-zero exit code " + result);
