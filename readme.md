@@ -146,6 +146,15 @@ Development
 
 Use gradle to perform various development related tasks. [More info](https://wiki.jenkins-ci.org/display/JENKINS/Gradle+JPI+Plugin)
 
+Build
+-------
+- gradle: 4.10
+
+```bash
+$ git clone https://github.com/tiantiandas/phabricator-jenkins-plugin.git
+$ docker run -it --rm `pwd`/phabricator-jenkins-plugin:/home/build gradle:4.10 sh
+$ cd /home/build && gradle assemble
+```
 
 Testing
 -------
