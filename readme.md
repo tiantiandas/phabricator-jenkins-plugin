@@ -152,9 +152,12 @@ Build
 
 ```bash
 $ git clone https://github.com/tiantiandas/phabricator-jenkins-plugin.git
-$ docker run -it --rm `pwd`/phabricator-jenkins-plugin:/home/build gradle:4.10 sh
-$ cd /home/build && gradle assemble
+$ docker run -it --rm -u 0:0 -v $(pwd)/phabricator-jenkins-plugin:/home/build gradle:5.5-jdk11 bash
+$ cd /home/build && ./gradlew assemble
 ```
+
+Output: `build/libs/phabricator-plugin.hpi`
+
 
 Testing
 -------
